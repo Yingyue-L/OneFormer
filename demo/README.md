@@ -13,11 +13,11 @@
 ```bash
 export task=panoptic
 
-python demo.py --config-file ../configs/ade20k/swin/oneformer_swin_large_bs16_160k.yaml \
-  --input <path-to-images> \
-  --output <output-path> \
-  --task $task \
-  --opts MODEL.IS_TRAIN False MODEL.IS_DEMO True MODEL.WEIGHTS <path-to-checkpoint>
+CUDA_VISIBLE_DEVICES=1 python demo/demo.py --config-file configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml \
+--input playground/data/coco/unlabeled2017 \
+--task $task \
+--output playground/data/coco/seg_unlabeled2017 \
+--opts MODEL.WEIGHTS 150_16_dinat_l_oneformer_coco_100ep.pth
 ```
 
 For details of the command line arguments, see `demo.py -h` or look at its source code

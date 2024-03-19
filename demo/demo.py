@@ -104,13 +104,36 @@ if __name__ == "__main__":
 
     demo = VisualizationDemo(cfg)
 
+    def find_files(root_dir, par_dir = ""):
+        """
+        递归查找指定目录下的所有文件路径
+        """
+        file_paths = []
+        file_abspaths = []
+        for root, dirs, files in os.walk(root_dir):
+            for file in files:
+                file_paths.append(os.path.join(root, file))
+                file_abspaths.append(os.path.join(par_dir, file))
+            for dir in dirs:
+                paths, abspaths = find_files(os.path.join(root, dir), os.path.join(par_dir, dir))
+                file_paths.extend(paths)
+                file_abspaths.extend(abspaths)
+            break
+        return file_paths, file_abspaths
+    
     if args.input:
-        for path in tqdm.tqdm(args.input, disable=not args.output):
+        if os.path.isdir(args.input[0]):
+            args.input, abspaths = find_files(args.input[0])
+
+        out_json = {}
+        for path, abspath in tqdm.tqdm(zip(args.input, abspaths), total=len(args.input)):
             # use PIL, to be consistent with evaluation
                 
             img = read_image(path, format="BGR")
             start_time = time.time()
             predictions, visualized_output = demo.run_on_image(img, args.task)
+
+            panoptic_seg, segments_info = predictions["panoptic_seg"]
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
@@ -121,18 +144,32 @@ if __name__ == "__main__":
                 )
             )
             if args.output:
-                if len(args.input) == 1:
-                    for k in visualized_output.keys():
-                        os.makedirs(k, exist_ok=True)
-                        out_filename = os.path.join(k, args.output)
-                        visualized_output[k].save(out_filename)    
-                else:
-                    for k in visualized_output.keys():
-                        opath = os.path.join(args.output, k)    
-                        os.makedirs(opath, exist_ok=True)
-                        out_filename = os.path.join(opath, os.path.basename(path))
-                        visualized_output[k].save(out_filename)    
+                # if len(args.input) == 1:
+                #     for k in visualized_output.keys():
+                #         os.makedirs(k, exist_ok=True)
+                #         out_filename = os.path.join(k, args.output)
+                #         visualized_output[k].save(out_filename)
+                # else:
+                from PIL import Image
+                opath = os.path.join(args.output, "panoptic")
+                out_filename = os.path.join(opath, abspath.replace(".jpg", ".png"))
+                os.makedirs(os.path.dirname(out_filename), exist_ok=True)
+
+                panoptic_img = Image.fromarray(panoptic_seg.cpu().numpy().astype(np.uint8))
+                panoptic_img.save(out_filename)
+
+                out_json[abspath] = segments_info
+
+                    # for k in visualized_output.keys():
+                    #     opath = os.path.join(args.output, k)    
+                    #     os.makedirs(opath, exist_ok=True)
+                    #     out_filename = os.path.join(opath, os.path.basename(path))
+                    #     visualized_output[k].save(out_filename)    
             else:
                 raise ValueError("Please specify an output path!")
+        if args.output:
+            import json
+            with open(os.path.join(args.output, "panoptic.json"), "w") as f:
+                json.dump(out_json, f)
     else:
         raise ValueError("No Input Given")

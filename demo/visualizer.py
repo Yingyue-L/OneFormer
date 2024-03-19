@@ -232,14 +232,14 @@ class _PanopticPrediction:
             if sinfo is None or sinfo["isthing"]:
                 # Some pixels (e.g. id 0 in PanopticFPN) have no instance or semantic predictions.
                 continue
-            yield (self._seg == sid).numpy().astype(np.bool), sinfo
+            yield (self._seg == sid).numpy().astype(np.bool_), sinfo
 
     def instance_masks(self):
         for sid in self._seg_ids:
             sinfo = self._sinfo.get(sid)
             if sinfo is None or not sinfo["isthing"]:
                 continue
-            mask = (self._seg == sid).numpy().astype(np.bool)
+            mask = (self._seg == sid).numpy().astype(np.bool_)
             if mask.sum() > 0:
                 yield mask, sinfo
 
