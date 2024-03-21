@@ -14,7 +14,7 @@ from visualizer import ColorMode, Visualizer
 
 
 class VisualizationDemo(object):
-    def __init__(self, cfg, instance_mode=ColorMode.IMAGE, parallel=False):
+    def __init__(self, cfg, instance_mode=ColorMode.IMAGE, parallel=False, metadata=None):
         """
         Args:
             cfg (CfgNode):
@@ -22,6 +22,7 @@ class VisualizationDemo(object):
             parallel (bool): whether to run the model in different processes from visualization.
                 Useful since the visualization logic can be slow.
         """
+        # if metadata is not None:
         self.metadata = MetadataCatalog.get(
             cfg.DATASETS.TEST_PANOPTIC[0] if len(cfg.DATASETS.TEST_PANOPTIC) else "__unused"
         )
@@ -29,6 +30,8 @@ class VisualizationDemo(object):
             from cityscapesscripts.helpers.labels import labels
             stuff_colors = [k.color for k in labels if k.trainId != 255]
             self.metadata = self.metadata.set(stuff_colors=stuff_colors)
+        # else:
+        #     self.metadata = metadata
         self.cpu_device = torch.device("cpu")
         self.instance_mode = instance_mode
 
@@ -39,7 +42,7 @@ class VisualizationDemo(object):
         else:
             self.predictor = DefaultPredictor(cfg)
 
-    def run_on_image(self, image, task):
+    def run_on_image(self, image, task, depth=None):
         """
         Args:
             image (np.ndarray): an image of shape (H, W, C) (in BGR order).
@@ -52,30 +55,31 @@ class VisualizationDemo(object):
         # Convert image from OpenCV BGR format to Matplotlib RGB format.
         image = image[:, :, ::-1]
         vis_output = {}
+        txt_output = {}
+
+        assert task in ['panoptic', 'semantic', 'instance'], "task should be one of 'panoptic', 'semantic', 'instance'"
         
-        if task == 'panoptic':
+        if task=="panoptic":
             visualizer = Visualizer(image, metadata=self.metadata, instance_mode=ColorMode.IMAGE)
-            predictions = self.predictor(image, task)
+            predictions = self.predictor(image, "panoptic")
             panoptic_seg, segments_info = predictions["panoptic_seg"]
-            vis_output['panoptic_inference'] = visualizer.draw_panoptic_seg_predictions(
-            panoptic_seg.to(self.cpu_device), segments_info, alpha=0.7
+            vis_output['panoptic_inference'], txt_output['panoptic_inference'], json_output = visualizer.draw_panoptic_seg_predictions(
+            panoptic_seg.to(self.cpu_device), segments_info, depth, alpha=1.0
         )
 
-        if task == 'panoptic' or task == 'semantic':
+        if task=="semantic":
             visualizer = Visualizer(image, metadata=self.metadata, instance_mode=ColorMode.IMAGE_BW)
-            predictions = self.predictor(image, task)
-            vis_output['semantic_inference'] = visualizer.draw_sem_seg(
-                predictions["sem_seg"].argmax(dim=0).to(self.cpu_device), alpha=0.7
+            predictions = self.predictor(image, "semantic")
+            vis_output['semantic_inference'], txt_output['semantic_inference'], json_output = visualizer.draw_sem_seg(
+                predictions["sem_seg"].argmax(dim=0).to(self.cpu_device), alpha=1.0
             )
 
-        if task == 'panoptic' or task == 'instance':
+        if task=="instance":
             visualizer = Visualizer(image, metadata=self.metadata, instance_mode=ColorMode.IMAGE_BW)
-            predictions = self.predictor(image, task)
+            predictions = self.predictor(image, "instance")
             instances = predictions["instances"].to(self.cpu_device)
-            vis_output['instance_inference'] = visualizer.draw_instance_predictions(predictions=instances, alpha=1)
-
-        return predictions, vis_output
-
+            vis_output['instance_inference'], txt_output['instance_inference'], json_output = visualizer.draw_instance_predictions(predictions=instances, alpha=1.0)
+        return predictions, vis_output, txt_output, json_output
 
 class AsyncPredictor:
     """
@@ -102,7 +106,7 @@ class AsyncPredictor:
                 if isinstance(task, AsyncPredictor._StopToken):
                     break
                 idx, data = task
-                result = predictor(data)
+                result = predictor(data[0], data[1])
                 self.result_queue.put((idx, result))
 
     def __init__(self, cfg, num_gpus: int = 1):
@@ -132,9 +136,9 @@ class AsyncPredictor:
             p.start()
         atexit.register(self.shutdown)
 
-    def put(self, image):
+    def put(self, image, task_name):
         self.put_idx += 1
-        self.task_queue.put((self.put_idx, image))
+        self.task_queue.put((self.put_idx, (image, task_name)))
 
     def get(self):
         self.get_idx += 1  # the index needed for this request
@@ -155,8 +159,8 @@ class AsyncPredictor:
     def __len__(self):
         return self.put_idx - self.get_idx
 
-    def __call__(self, image):
-        self.put(image)
+    def __call__(self, image, task_name):
+        self.put(image, task_name)
         return self.get()
 
     def shutdown(self):

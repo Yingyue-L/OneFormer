@@ -232,14 +232,14 @@ class _PanopticPrediction:
             if sinfo is None or sinfo["isthing"]:
                 # Some pixels (e.g. id 0 in PanopticFPN) have no instance or semantic predictions.
                 continue
-            yield (self._seg == sid).numpy().astype(np.bool), sinfo
+            yield (self._seg == sid).numpy().astype(np.bool_), sinfo
 
     def instance_masks(self):
         for sid in self._seg_ids:
             sinfo = self._sinfo.get(sid)
             if sinfo is None or not sinfo["isthing"]:
                 continue
-            mask = (self._seg == sid).numpy().astype(np.bool)
+            mask = (self._seg == sid).numpy().astype(np.bool_)
             if mask.sum() > 0:
                 yield mask, sinfo
 
@@ -365,7 +365,7 @@ class Visualizer:
 
     # TODO implement a fast, rasterized version using OpenCV
 
-    def __init__(self, img_rgb, is_seg=True, metadata=None, scale=1.0, instance_mode=ColorMode.IMAGE):
+    def __init__(self, img_rgb, metadata=None, scale=1.0, instance_mode=ColorMode.IMAGE, class_names=None):
         """
         Args:
             img_rgb: a numpy array of shape (H, W, C), where H and W correspond to
@@ -377,7 +377,8 @@ class Visualizer:
             instance_mode (ColorMode): defines one of the pre-defined style for drawing
                 instances on an image.
         """
-        self.img = np.asarray(img_rgb).clip(0, 255).astype(np.uint8)
+        # self.img = np.asarray(img_rgb).clip(0, 255).astype(np.uint8)
+        self.img = np.zeros_like(img_rgb).clip(0, 255).astype(np.uint8)
         if metadata is None:
             metadata = MetadataCatalog.get("__nonexist__")
         self.metadata = metadata
@@ -390,10 +391,17 @@ class Visualizer:
         )
         self._instance_mode = instance_mode
         self.keypoint_threshold = _KEYPOINT_THRESHOLD
+        self.class_names = None
+
+        # if self.class_names is None:
+        self.class_names = self.metadata.get("stuff_classes", None)
+        self.thing_indices = [k for k in self.metadata.thing_dataset_id_to_contiguous_id.values()]
+        self.thing_classes = [self.class_names[k] for k in self.thing_indices]
 
     def get_image(self, img):
         img = np.asarray(img).clip(0, 255).astype(np.uint8)
         return VisImage(img, scale=1.0)
+    
     
     def draw_box_predictions(
         self,
@@ -420,7 +428,7 @@ class Visualizer:
         boxes = self._convert_boxes(boxes)
         classes = labels.tolist()
         scores = scores.tolist()
-        labels = _create_text_labels(classes, scores, self.metadata.get("stuff_classes", None))
+        labels = _create_text_labels(classes, scores, self.class_names)
         num_instances = len(boxes)
         assert len(labels) == num_instances
         if assigned_colors is None:
@@ -471,16 +479,15 @@ class Visualizer:
                     * 0.5
                     * self._default_font_size
                 )
-                self.draw_text(
-                    labels[i],
-                    text_pos,
-                    color=lighter_color,
-                    horizontal_alignment=horiz_align,
-                    font_size=font_size,
-                )
+                # self.draw_text(
+                #     labels[i],
+                #     text_pos,
+                #     color=lighter_color,
+                #     horizontal_alignment=horiz_align,
+                #     font_size=font_size,
+                # )
 
         return self.output
-    
     
     def draw_instance_predictions(self, predictions, alpha=0.8):
         """
@@ -495,7 +502,7 @@ class Visualizer:
         boxes = predictions.pred_boxes if predictions.has("pred_boxes") else None
         scores = predictions.scores if predictions.has("scores") else None
         classes = predictions.pred_classes.tolist() if predictions.has("pred_classes") else None
-        labels = _create_text_labels(classes, scores, self.metadata.get("stuff_classes", None))
+        labels = _create_text_labels(classes, scores, self.class_names)
         keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
 
         if predictions.has("pred_masks"):
@@ -504,7 +511,7 @@ class Visualizer:
         else:
             masks = None
 
-        if self._instance_mode == ColorMode.SEGMENTATION and self.metadata.get("stuff_colors"):
+        if self._instance_mode == ColorMode.SEGMENTATION and self.class_names:
             # colors = [
             #     self._jitter([x / 255 for x in self.metadata.thing_colors[c]]) for c in classes
             # ]
@@ -531,7 +538,27 @@ class Visualizer:
             assigned_colors=colors,
             alpha=alpha,
         )
-        return self.output
+
+        texts = {}
+
+        segment_json = []
+
+        for label, score, bbox in zip(classes, scores, boxes):
+            if score > 0.5:
+                text = self.class_names[label]
+
+                segment_json.append({
+                    "category": text.split("-")[0],
+                    "bbox": [int(x) for x in bbox],
+                    "is_thing": 1 if text in self.thing_classes else "stuff"
+                })
+
+                if text not in texts.keys():
+                    texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
+                else:
+                    texts[text][0] += 1
+
+        return self.output, texts, segment_json
 
     def draw_sem_seg(self, sem_seg, area_threshold=None, alpha=0.8):
         """
@@ -549,14 +576,34 @@ class Visualizer:
         labels, areas = np.unique(sem_seg, return_counts=True)
         sorted_idxs = np.argsort(-areas).tolist()
         labels = labels[sorted_idxs]
-        for label in filter(lambda l: l < len(self.metadata.stuff_classes), labels):
+        texts = {}
+        json = {}
+
+        segment_json = []
+        for label in filter(lambda l: l < len(self.class_names), labels):
             try:
                 mask_color = [x / 255 for x in self.metadata.stuff_colors[label]]
             except (AttributeError, IndexError):
                 mask_color = None
 
             binary_mask = (sem_seg == label).astype(np.uint8)
-            text = self.metadata.stuff_classes[label]
+            text = self.class_names[label]
+            texts[text] = [1, "stuff"]
+
+            rle = mask_util.encode(np.asfortranarray(binary_mask, dtype=np.uint8))
+            bbox = mask_util.toBbox(rle)
+
+            segment_json.append({
+                "category": text.split("-")[0],
+                "bbox": [int(x) for x in bbox],
+                "is_thing": 0
+            })
+            rle["counts"] = rle["counts"].decode("utf-8")
+            if text.split("-")[0] not in json.keys():
+                json[text.split("-")[0]] = [rle]
+            else:
+                json[text.split("-")[0]].append(rle)
+
             self.draw_binary_mask(
                 binary_mask,
                 color=mask_color,
@@ -565,9 +612,9 @@ class Visualizer:
                 alpha=alpha,
                 area_threshold=area_threshold,
             )
-        return self.output
+        return self.output, texts, segment_json
 
-    def draw_panoptic_seg(self, panoptic_seg, segments_info, area_threshold=None, alpha=0.7):
+    def draw_panoptic_seg(self, panoptic_seg, segments_info, depth, area_threshold=None, alpha=0.7):
         """
         Draw panoptic prediction annotations or results.
         Args:
@@ -582,10 +629,31 @@ class Visualizer:
             output (VisImage): image object with visualizations.
         """
         pred = _PanopticPrediction(panoptic_seg, segments_info, self.metadata)
+        assert depth.shape[:2] == panoptic_seg.shape
+        assert torch.max(panoptic_seg) == len(segments_info)
+
+        import matplotlib.pyplot as plt
+        # 使用"Magma_r" colormap
+        colormap = plt.get_cmap('magma_r').colors
+        # 计算每个颜色与输入像素之间的欧氏距离
+        distances = torch.norm(torch.tensor(colormap).cuda() * 255 - torch.tensor(depth).cuda().unsqueeze(-2), dim=-1)
+        # 找到最小距离对应的索引
+        nearest_index = torch.argmin(distances, dim=-1)
+        # 归一化深度值
+        depth_values = nearest_index.float().cpu().numpy() / 255.0
 
         if self._instance_mode == ColorMode.IMAGE_BW:
             self.output.reset_image(self._create_grayscale_image(pred.non_empty_mask()))
 
+        classes = []
+        json = {}
+
+        segment_json = []
+
+        import pycocotools.mask as mask_util
+        
+        json = {}
+        
         # draw mask for all semantic segments first i.e. "stuff"
         for mask, sinfo in pred.semantic_masks():
             category_idx = sinfo["category_id"]
@@ -594,7 +662,26 @@ class Visualizer:
             except AttributeError:
                 mask_color = None
 
-            text = self.metadata.stuff_classes[category_idx]
+            text = self.class_names[category_idx]
+            classes.append(text)
+
+            rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
+            bbox = mask_util.toBbox(rle)
+
+            depth_value = np.max(depth_values[mask])
+
+            segment_json.append({
+                "depth": round(float(depth_value), 4),
+                "category": text.split("-")[0],
+                "bbox": [int(x) for x in bbox],
+                "is_thing": 0
+            })
+            rle["counts"] = rle["counts"].decode("utf-8")
+            if text.split("-")[0] not in json.keys():
+                json[text.split("-")[0]] = [rle]
+            else:
+                json[text.split("-")[0]].append(rle)
+
             self.draw_binary_mask(
                 mask,
                 color=mask_color,
@@ -607,7 +694,7 @@ class Visualizer:
         # draw mask for all instances second
         all_instances = list(pred.instance_masks())
         if len(all_instances) == 0:
-            return self.output
+            return self.output, {}, {}
         masks, sinfo = list(zip(*all_instances))
         category_ids = [x["category_id"] for x in sinfo]
 
@@ -616,8 +703,34 @@ class Visualizer:
         except KeyError:
             scores = None
         labels = _create_text_labels(
-            category_ids, scores, self.metadata.stuff_classes, [x.get("iscrowd", 0) for x in sinfo]
+            category_ids, scores, self.class_names, [x.get("iscrowd", 0) for x in sinfo]
         )
+
+        for mask, text in zip(masks, labels):
+            rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
+            bbox = mask_util.toBbox(rle)
+
+            depth_value = np.max(depth_values[mask])
+
+            segment_json.append({
+                "depth": round(float(depth_value), 4),
+                "category": text.split("-")[0],
+                "bbox": [int(x) for x in bbox],
+                "is_thing": 0
+            })
+            rle["counts"] = rle["counts"].decode("utf-8")
+            if text.split("-")[0] not in json.keys():
+                json[text.split("-")[0]] = [rle]
+            else:
+                json[text.split("-")[0]].append(rle)
+
+        classes.extend(labels)
+        texts = {}
+        for text in classes:
+            if text not in texts.keys():
+                texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
+            else:
+                texts[text][0] += 1
 
         try:
             colors = [
@@ -626,8 +739,10 @@ class Visualizer:
         except AttributeError:
             colors = None
         self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
+        from operator import itemgetter
+        segment_json = sorted(segment_json, key=itemgetter('depth'))
 
-        return self.output
+        return self.output, texts, segment_json
 
     draw_panoptic_seg_predictions = draw_panoptic_seg  # backward compatibility
 
@@ -665,7 +780,7 @@ class Visualizer:
                     self._jitter([x / 255 for x in self.metadata.stuff_colors[c]])
                     for c in category_ids
                 ]
-            names = self.metadata.get("stuff_classes", None)
+            names = self.class_names
             labels = _create_text_labels(
                 category_ids,
                 scores=None,
@@ -825,13 +940,13 @@ class Visualizer:
                     * 0.5
                     * self._default_font_size
                 )
-                self.draw_text(
-                    labels[i],
-                    text_pos,
-                    color=lighter_color,
-                    horizontal_alignment=horiz_align,
-                    font_size=font_size,
-                )
+                # self.draw_text(
+                #     labels[i],
+                #     text_pos,
+                #     color=lighter_color,
+                #     horizontal_alignment=horiz_align,
+                #     font_size=font_size,
+                # )
 
         # draw keypoints
         if keypoints is not None:
@@ -1067,7 +1182,7 @@ class Visualizer:
             font_size = (
                 np.clip((height_ratio - 0.02) / 0.08 + 1, 1.2, 2) * 0.5 * self._default_font_size
             )
-            self.draw_text(label, text_pos, color=label_color, font_size=font_size, rotation=angle)
+            # self.draw_text(label, text_pos, color=label_color, font_size=font_size, rotation=angle)
 
         return self.output
 
@@ -1165,7 +1280,7 @@ class Visualizer:
 
         if text is not None and has_valid_segment:
             lighter_color = self._change_color_brightness(color, brightness_factor=0.7)
-            self._draw_text_in_mask(binary_mask, text, lighter_color)
+            # self._draw_text_in_mask(binary_mask, text, lighter_color)
         return self.output
 
     def draw_soft_mask(self, soft_mask, color=None, *, text=None, alpha=0.5):

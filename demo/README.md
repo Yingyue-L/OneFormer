@@ -11,13 +11,8 @@
   - >Note: You can change the outputs to be saved on line 60 in [predictor.py](predictor.py).
 
 ```bash
-export task=panoptic
-
-python demo.py --config-file ../configs/ade20k/swin/oneformer_swin_large_bs16_160k.yaml \
-  --input <path-to-images> \
-  --output <output-path> \
-  --task $task \
-  --opts MODEL.IS_TRAIN False MODEL.IS_DEMO True MODEL.WEIGHTS <path-to-checkpoint>
+cd demo
+CUDA_VISIBLE_DEVICES=0,1,2,3 bash process.sh
 ```
 
 For details of the command line arguments, see `demo.py -h` or look at its source code
