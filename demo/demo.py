@@ -32,6 +32,13 @@ from oneformer import (
 )
 from predictor import VisualizationDemo
 
+from PIL import Image
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+import json
+
+import math
 # constants
 WINDOW_NAME = "OneFormer Demo"
 
@@ -83,7 +90,21 @@ def get_parser():
         default=[],
         nargs=argparse.REMAINDER,
     )
+    parser.add_argument("--data-path", type=str, default=None, help="path to data")
+    parser.add_argument("--image-path", type=str, default=None, help="path to image")
+
+    parser.add_argument("--num-chunks", type=int, default=1)
+    parser.add_argument("--chunk-idx", type=int, default=0)
     return parser
+
+def split_list(lst, n):
+    """Split a list into n (roughly) equal-sized chunks"""
+    chunk_size = math.ceil(len(lst) / n)  # integer division
+    return [lst[i:i+chunk_size] for i in range(0, len(lst), chunk_size)]
+
+def get_chunk(lst, n, k):
+    chunks = split_list(lst, n)
+    return chunks[k]
 
 if __name__ == "__main__":
     seed = 0
@@ -102,7 +123,7 @@ if __name__ == "__main__":
 
     cfg = setup_cfg(args)
 
-    demo = VisualizationDemo(cfg)
+    demo = VisualizationDemo(cfg, parallel=True)
 
     def find_files(root_dir, par_dir = ""):
         """
@@ -123,17 +144,42 @@ if __name__ == "__main__":
     
     if args.input:
         if os.path.isdir(args.input[0]):
-            args.input, abspaths = find_files(args.input[0])
-
+            input_dir = args.input[0]
+            if args.data_path is not None:
+                args.input = []
+                abspaths = []
+                list_data = json.load(open(args.data_path))
+                if input_dir[-1] != "/":
+                    input_dir += "/"
+                for data in tqdm.tqdm(list_data):
+                    if "image" in data and input_dir in os.path.join(args.image_path, data["image"]):
+                        args.input.append(os.path.join(args.image_path, data["image"]))
+                        abspaths.append(os.path.relpath(os.path.join(args.image_path, data["image"]), input_dir))
+            else:
+                args.input, abspaths = find_files(input_dir)
         out_json = {}
+        merge_json = {}
+        if args.output and os.path.exists(os.path.join(args.output, f"{args.task}.json")):
+            merge_json = json.load(open(os.path.join(args.output, f"{args.task}.json")))
+        
+        args.input = get_chunk(args.input, args.num_chunks, args.chunk_idx)
+        abspaths = get_chunk(abspaths, args.num_chunks, args.chunk_idx)
         for path, abspath in tqdm.tqdm(zip(args.input, abspaths), total=len(args.input)):
             # use PIL, to be consistent with evaluation
                 
+            if args.output:
+                opath = os.path.join(args.output, f"{args.task}")
+                out_filename = os.path.join(opath, abspath.replace(".jpg", ".png"))
+                os.makedirs(os.path.dirname(out_filename), exist_ok=True)
+
+                if os.path.exists(out_filename) and abspath in merge_json:
+                    continue
             img = read_image(path, format="BGR")
             start_time = time.time()
             predictions, visualized_output = demo.run_on_image(img, args.task)
 
-            panoptic_seg, segments_info = predictions["panoptic_seg"]
+            if args.task == "panoptic":
+                panoptic_seg, segments_info = predictions[f"panoptic_seg"]
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
@@ -144,32 +190,15 @@ if __name__ == "__main__":
                 )
             )
             if args.output:
-                # if len(args.input) == 1:
-                #     for k in visualized_output.keys():
-                #         os.makedirs(k, exist_ok=True)
-                #         out_filename = os.path.join(k, args.output)
-                #         visualized_output[k].save(out_filename)
-                # else:
-                from PIL import Image
-                opath = os.path.join(args.output, "panoptic")
-                out_filename = os.path.join(opath, abspath.replace(".jpg", ".png"))
-                os.makedirs(os.path.dirname(out_filename), exist_ok=True)
+                if not os.path.exists(out_filename):
+                    panoptic_img = Image.fromarray(panoptic_seg.cpu().numpy().astype(np.uint8))
+                    panoptic_img.save(out_filename)
 
-                panoptic_img = Image.fromarray(panoptic_seg.cpu().numpy().astype(np.uint8))
-                panoptic_img.save(out_filename)
-
-                out_json[abspath] = segments_info
-
-                    # for k in visualized_output.keys():
-                    #     opath = os.path.join(args.output, k)    
-                    #     os.makedirs(opath, exist_ok=True)
-                    #     out_filename = os.path.join(opath, os.path.basename(path))
-                    #     visualized_output[k].save(out_filename)    
+                out_json[abspath] = segments_info   
             else:
                 raise ValueError("Please specify an output path!")
         if args.output:
-            import json
-            with open(os.path.join(args.output, "panoptic.json"), "w") as f:
+            with open(os.path.join(args.output, f"{args.task}_{args.num_chunks}_{args.chunk_idx}.json"), "w") as f:
                 json.dump(out_json, f)
     else:
         raise ValueError("No Input Given")

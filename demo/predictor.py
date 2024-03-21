@@ -102,7 +102,7 @@ class AsyncPredictor:
                 if isinstance(task, AsyncPredictor._StopToken):
                     break
                 idx, data = task
-                result = predictor(data)
+                result = predictor(data[0], data[1])
                 self.result_queue.put((idx, result))
 
     def __init__(self, cfg, num_gpus: int = 1):
@@ -132,9 +132,9 @@ class AsyncPredictor:
             p.start()
         atexit.register(self.shutdown)
 
-    def put(self, image):
+    def put(self, image, task_name):
         self.put_idx += 1
-        self.task_queue.put((self.put_idx, image))
+        self.task_queue.put((self.put_idx, (image, task_name)))
 
     def get(self):
         self.get_idx += 1  # the index needed for this request
@@ -155,8 +155,8 @@ class AsyncPredictor:
     def __len__(self):
         return self.put_idx - self.get_idx
 
-    def __call__(self, image):
-        self.put(image)
+    def __call__(self, image, task_name):
+        self.put(image, task_name)
         return self.get()
 
     def shutdown(self):

@@ -13,11 +13,27 @@
 ```bash
 export task=panoptic
 
-CUDA_VISIBLE_DEVICES=1 python demo/demo.py --config-file configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml \
---input playground/data/coco/unlabeled2017 \
---task $task \
---output playground/data/coco/seg_unlabeled2017 \
---opts MODEL.WEIGHTS 150_16_dinat_l_oneformer_coco_100ep.pth
+cd demo
+CUDA_VISIBLE_DEVICES=0,1,2,3 bash process.sh
+
+cd ..
+CUDA_VISIBLE_DEVICES=0 python demo/generate_json.py --depth playground/data/ocr_vqa/depth \
+--panoptic-seg playground/data/ocr_vqa/seg_images/panoptic \
+--segment-info playground/data/ocr_vqa/seg_images/panoptic.json \
+--output playground/data/ocr_vqa/seg_images
+
+CUDA_VISIBLE_DEVICES=1 python demo/generate_gt_panoptic.py --depth playground/data/coco_segm_text/depth/val/depth \
+--panoptic-seg playground/data/coco/annotations/panoptic_annotations/panoptic_val2017 \
+--segment-info playground/data/coco/annotations/panoptic_annotations/panoptic_val2017.json \
+--output playground/data/coco/annotations/val2017
+
+CUDA_VISIBLE_DEVICES=2 python demo/generate_gt_instance.py \
+--segment-info playground/data/coco/annotations/instances_val2017.json \
+--output playground/data/coco/annotations/val2017
+
+CUDA_VISIBLE_DEVICES=2 python demo/generate_gt_semantic.py \
+--semantic-seg playground/data/stuffthingmaps_trainval2017/val2017 \
+--output playground/data/coco/annotations/val2017
 ```
 
 For details of the command line arguments, see `demo.py -h` or look at its source code
