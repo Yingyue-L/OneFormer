@@ -499,11 +499,11 @@ class Visualizer:
         Returns:
             output (VisImage): image object with visualizations.
         """
-        boxes = predictions.pred_boxes if predictions.has("pred_boxes") else None
+        # boxes = predictions.pred_boxes if predictions.has("pred_boxes") else None
         scores = predictions.scores if predictions.has("scores") else None
         classes = predictions.pred_classes.tolist() if predictions.has("pred_classes") else None
-        labels = _create_text_labels(classes, scores, self.class_names)
-        keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
+        # labels = _create_text_labels(classes, scores, self.class_names)
+        # keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
 
         if predictions.has("pred_masks"):
             masks = np.asarray(predictions.pred_masks)
@@ -511,41 +511,45 @@ class Visualizer:
         else:
             masks = None
 
-        if self._instance_mode == ColorMode.SEGMENTATION and self.class_names:
-            # colors = [
-            #     self._jitter([x / 255 for x in self.metadata.thing_colors[c]]) for c in classes
-            # ]
-            colors = [
-                instance_color(rgb=True, idx=c, maximum=1) for c in classes
-            ]
-        else:
-            colors = None
+        # if self._instance_mode == ColorMode.SEGMENTATION and self.class_names:
+        #     # colors = [
+        #     #     self._jitter([x / 255 for x in self.metadata.thing_colors[c]]) for c in classes
+        #     # ]
+        #     colors = [
+        #         instance_color(rgb=True, idx=c, maximum=1) for c in classes
+        #     ]
+        # else:
+        #     colors = None
 
-        if self._instance_mode == ColorMode.IMAGE_BW:
-            self.output.reset_image(
-                self._create_grayscale_image(
-                    (predictions.pred_masks.any(dim=0) > 0).numpy()
-                    if predictions.has("pred_masks")
-                    else None
-                )
-            )
+        # if self._instance_mode == ColorMode.IMAGE_BW:
+        #     self.output.reset_image(
+        #         self._create_grayscale_image(
+        #             (predictions.pred_masks.any(dim=0) > 0).numpy()
+        #             if predictions.has("pred_masks")
+        #             else None
+        #         )
+        #     )
 
-        self.overlay_instances(
-            masks=masks,
-            boxes=boxes,
-            labels=labels,
-            keypoints=keypoints,
-            assigned_colors=colors,
-            alpha=alpha,
-        )
+        # self.overlay_instances(
+        #     masks=masks,
+        #     boxes=boxes,
+        #     labels=labels,
+        #     keypoints=keypoints,
+        #     assigned_colors=colors,
+        #     alpha=alpha,
+        # )
 
         texts = {}
 
         segment_json = []
 
-        for label, score, bbox in zip(classes, scores, boxes):
+        for label, score, mask in zip(classes, scores, masks):
             if score > 0.5:
                 text = self.class_names[label]
+                mask = mask.mask
+
+                rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
+                bbox = mask_util.toBbox(rle)
 
                 segment_json.append({
                     "category": text.split("-")[0],
@@ -553,10 +557,10 @@ class Visualizer:
                     "is_thing": 1 if text in self.thing_classes else "stuff"
                 })
 
-                if text not in texts.keys():
-                    texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
-                else:
-                    texts[text][0] += 1
+                # if text not in texts.keys():
+                #     texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
+                # else:
+                #     texts[text][0] += 1
 
         return self.output, texts, segment_json
 
@@ -598,20 +602,20 @@ class Visualizer:
                 "bbox": [int(x) for x in bbox],
                 "is_thing": 0
             })
-            rle["counts"] = rle["counts"].decode("utf-8")
-            if text.split("-")[0] not in json.keys():
-                json[text.split("-")[0]] = [rle]
-            else:
-                json[text.split("-")[0]].append(rle)
+            # rle["counts"] = rle["counts"].decode("utf-8")
+            # if text.split("-")[0] not in json.keys():
+            #     json[text.split("-")[0]] = [rle]
+            # else:
+            #     json[text.split("-")[0]].append(rle)
 
-            self.draw_binary_mask(
-                binary_mask,
-                color=mask_color,
-                edge_color=_OFF_WHITE,
-                text=text,
-                alpha=alpha,
-                area_threshold=area_threshold,
-            )
+            # self.draw_binary_mask(
+            #     binary_mask,
+            #     color=mask_color,
+            #     edge_color=_OFF_WHITE,
+            #     text=text,
+            #     alpha=alpha,
+            #     area_threshold=area_threshold,
+            # )
         return self.output, texts, segment_json
 
     def draw_panoptic_seg(self, panoptic_seg, segments_info, depth, area_threshold=None, alpha=0.7):
@@ -636,7 +640,11 @@ class Visualizer:
         # 使用"Magma_r" colormap
         colormap = plt.get_cmap('magma_r').colors
         # 计算每个颜色与输入像素之间的欧氏距离
-        distances = torch.norm(torch.tensor(colormap).cuda() * 255 - torch.tensor(depth).cuda().unsqueeze(-2), dim=-1)
+        if depth.shape[0] * depth.shape[1] < 1000000:# OOM
+            distances = torch.norm(torch.tensor(colormap).cuda() * 255 - torch.tensor(depth).cuda().unsqueeze(-2), dim=-1)
+        else:
+            distances = torch.norm(torch.tensor(colormap) * 255 - torch.tensor(depth).unsqueeze(-2), dim=-1)
+
         # 找到最小距离对应的索引
         nearest_index = torch.argmin(distances, dim=-1)
         # 归一化深度值
@@ -676,20 +684,20 @@ class Visualizer:
                 "bbox": [int(x) for x in bbox],
                 "is_thing": 0
             })
-            rle["counts"] = rle["counts"].decode("utf-8")
-            if text.split("-")[0] not in json.keys():
-                json[text.split("-")[0]] = [rle]
-            else:
-                json[text.split("-")[0]].append(rle)
+            # rle["counts"] = rle["counts"].decode("utf-8")
+            # if text.split("-")[0] not in json.keys():
+            #     json[text.split("-")[0]] = [rle]
+            # else:
+            #     json[text.split("-")[0]].append(rle)
 
-            self.draw_binary_mask(
-                mask,
-                color=mask_color,
-                edge_color=_OFF_WHITE,
-                text=text,
-                alpha=alpha,
-                area_threshold=area_threshold,
-            )
+            # self.draw_binary_mask(
+            #     mask,
+            #     color=mask_color,
+            #     edge_color=_OFF_WHITE,
+            #     text=text,
+            #     alpha=alpha,
+            #     area_threshold=area_threshold,
+            # )
 
         # draw mask for all instances second
         all_instances = list(pred.instance_masks())
@@ -718,27 +726,27 @@ class Visualizer:
                 "bbox": [int(x) for x in bbox],
                 "is_thing": 0
             })
-            rle["counts"] = rle["counts"].decode("utf-8")
-            if text.split("-")[0] not in json.keys():
-                json[text.split("-")[0]] = [rle]
-            else:
-                json[text.split("-")[0]].append(rle)
+            # rle["counts"] = rle["counts"].decode("utf-8")
+            # if text.split("-")[0] not in json.keys():
+            #     json[text.split("-")[0]] = [rle]
+            # else:
+            #     json[text.split("-")[0]].append(rle)
 
-        classes.extend(labels)
-        texts = {}
-        for text in classes:
-            if text not in texts.keys():
-                texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
-            else:
-                texts[text][0] += 1
+        # classes.extend(labels)
+        # texts = {}
+        # for text in classes:
+        #     if text not in texts.keys():
+        #         texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
+        #     else:
+        #         texts[text][0] += 1
 
-        try:
-            colors = [
-                self._jitter([x / 255 for x in self.metadata.stuff_colors[c]]) for c in category_ids
-            ]
-        except AttributeError:
-            colors = None
-        self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
+        # try:
+        #     colors = [
+        #         self._jitter([x / 255 for x in self.metadata.stuff_colors[c]]) for c in category_ids
+        #     ]
+        # except AttributeError:
+        #     colors = None
+        # self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
         from operator import itemgetter
         segment_json = sorted(segment_json, key=itemgetter('depth'))
 

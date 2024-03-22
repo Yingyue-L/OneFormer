@@ -76,16 +76,6 @@ def setup_cfg(args):
     return cfg
 
 
-def merge_json(args):
-    results = {}
-    for task in ["semantic", "panoptic"]:
-        results[task] = {}
-        for idx in range(args.num_chunks):
-            with open(f'{args.output}/{task}/{args.num_chunks}_{idx}.json', 'r') as infile:
-                results[task] = {**results[task], **json.load(infile)}
-    with open(f'{args.output}/{task}.json', 'w') as output_file:
-        json.dump(results, output_file)
-
 def get_parser():
     parser = argparse.ArgumentParser(description="oneformer demo for builtin configs")
     parser.add_argument(
@@ -167,32 +157,74 @@ if __name__ == "__main__":
 
     cfg = setup_cfg(args)
 
-    tasks = ["panoptic", "semantic", "instance"]
-
     os.makedirs(args.output, exist_ok=True)
     demo = VisualizationDemo(cfg, parallel=True)
-    pan_json = {}
-    sem_json = {}
+
+    def find_files(root_dir, par_dir = ""):
+        """
+        递归查找指定目录下的所有文件路径
+        """
+        file_paths = []
+        file_abspaths = []
+        for root, dirs, files in os.walk(root_dir):
+            for file in files:
+                file_paths.append(os.path.join(root, file))
+                if file.endswith('.jpg') or file.endswith('.png'):
+                    file_abspaths.append(os.path.join(par_dir, file))
+            for dir in dirs:
+                paths, abspaths = find_files(os.path.join(root, dir), os.path.join(par_dir, dir))
+                file_paths.extend(paths)
+                file_abspaths.extend(abspaths)
+            break
+        return file_paths, file_abspaths
 
     if args.input:
-        paths = glob.glob(f'{args.input}/*.jpg')
+        with open(os.path.join(args.output, f"error_{args.task}.txt"), "w") as f:
+            f.write("")
+
+        if args.output:
+            if os.path.exists(f'{args.output}/{args.task}.json'):
+                with open(f'{args.output}/{args.task}.json', 'r') as infile:
+                    merge_json = json.load(infile)
+            else:
+                merge_json = {}
+        
+        paths, abspaths = find_files(args.input)
         paths = get_chunk(paths, args.num_chunks, args.chunk_idx)
+        abspaths = get_chunk(abspaths, args.num_chunks, args.chunk_idx)
         
         segment_json = {}
-        for path in tqdm.tqdm(paths, disable=not args.output):
+        for path, abspath in tqdm.tqdm(zip(paths, abspaths), disable=not args.output, total=len(paths)):
+            if args.output and abspath in merge_json.keys():
+                segment_json[abspath] = merge_json[abspath]
+                continue
             # use PIL, to be consistent with evaluation
-            img = read_image(path, format="BGR")
-            image_path = os.path.basename(path)
+            try:
+                img = read_image(path, format="BGR")
+            except:
+                with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
+                    f.write(abspath + " Image open error\n")
+                continue
             start_time = time.time()
 
             if args.task == "panoptic":
-                depth_path = os.path.join(args.depth, image_path)
-                depth = np.array(Image.open(depth_path))
-                predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task, depth)
+                try:
+                    depth_path = os.path.join(args.depth, abspath.replace(".png", ".jpg"))
+                    depth = np.array(Image.open(depth_path))
+                except:
+                    with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
+                        f.write(abspath + " Depth open error\n")
+                    continue
+                try:
+                    predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task, depth)
+                except:
+                    with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
+                        f.write(abspath + " Panoptic error\n")
+                    continue
             else:
                 predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task)
 
-            segment_json[os.path.basename(path)] = json_output
+            segment_json[abspath] = json_output
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
