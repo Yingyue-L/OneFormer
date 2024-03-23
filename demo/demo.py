@@ -117,29 +117,6 @@ def get_parser():
     )
     return parser
 
-def format_text(txt_output):
-    if len(txt_output.keys()) == 0:
-        return "There are no detectable objects in the image"
-    
-    if len(txt_output.keys()) == 1:
-        if list(txt_output.values())[0] == 1:
-            verb = "is"
-            plural = ""
-        else:
-            verb = "are"
-            plural = "s"
-    else:
-        verb = "are"
-        plural = "s"
-        
-    txt_line = f"The object{plural} present in the image {verb}:"
-    for k in txt_output.keys():
-        num = "" if txt_output[k][0] == 1 else p.number_to_words(txt_output[k][0]) + " "
-        noun = k.split('-')[0] if txt_output[k][0] == 1 else p.plural(k.split('-')[0])
-        txt_line += f" {num}{noun},"
-    txt_line = txt_line[:-1] + "."
-    return txt_line
-
 if __name__ == "__main__":
     seed = 0
     random.seed(seed)
