@@ -145,8 +145,8 @@ if __name__ == "__main__":
         file_abspaths = []
         for root, dirs, files in os.walk(root_dir):
             for file in files:
-                file_paths.append(os.path.join(root, file))
-                if file.endswith('.jpg') or file.endswith('.png'):
+                if os.path.join(par_dir, file) not in merge_json and (file.endswith('.jpg') or file.endswith('.png')):
+                    file_paths.append(os.path.join(root, file))
                     file_abspaths.append(os.path.join(par_dir, file))
             for dir in dirs:
                 paths, abspaths = find_files(os.path.join(root, dir), os.path.join(par_dir, dir))
@@ -172,9 +172,6 @@ if __name__ == "__main__":
         
         segment_json = {}
         for path, abspath in tqdm.tqdm(zip(paths, abspaths), disable=not args.output, total=len(paths)):
-            if args.output and abspath in merge_json.keys():
-                segment_json[abspath] = merge_json[abspath]
-                continue
             # use PIL, to be consistent with evaluation
             try:
                 img = read_image(path, format="BGR")
@@ -186,7 +183,7 @@ if __name__ == "__main__":
 
             if args.task == "panoptic":
                 try:
-                    depth_path = os.path.join(args.depth, abspath.replace(".png", ".jpg"))
+                    depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".jpg")
                     depth = np.array(Image.open(depth_path))
                 except:
                     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:

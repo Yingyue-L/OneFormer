@@ -640,9 +640,9 @@ class Visualizer:
         # 使用"Magma_r" colormap
         colormap = plt.get_cmap('magma_r').colors
         # 计算每个颜色与输入像素之间的欧氏距离
-        if depth.shape[0] * depth.shape[1] < 1000000:# OOM
+        try:
             distances = torch.norm(torch.tensor(colormap).cuda() * 255 - torch.tensor(depth).cuda().unsqueeze(-2), dim=-1)
-        else:
+        except:
             distances = torch.norm(torch.tensor(colormap) * 255 - torch.tensor(depth).unsqueeze(-2), dim=-1)
 
         # 找到最小距离对应的索引
@@ -724,7 +724,7 @@ class Visualizer:
                 "depth": round(float(depth_value), 4),
                 "category": text.split("-")[0],
                 "bbox": [int(x) for x in bbox],
-                "is_thing": 0
+                "is_thing": 1 if text in self.thing_classes else "stuff"
             })
             # rle["counts"] = rle["counts"].decode("utf-8")
             # if text.split("-")[0] not in json.keys():
@@ -733,7 +733,7 @@ class Visualizer:
             #     json[text.split("-")[0]].append(rle)
 
         # classes.extend(labels)
-        # texts = {}
+        texts = {}
         # for text in classes:
         #     if text not in texts.keys():
         #         texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]

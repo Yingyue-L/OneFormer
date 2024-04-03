@@ -11,7 +11,11 @@ if __name__ == '__main__':
     parser.add_argument('--output', help='Output file')
     parser.add_argument('--task', help='Task name', default="panoptic")
     args = parser.parse_args()
-    merge_json = {}
+    if os.path.exists(f'{args.output}/{args.task}.json'):
+        with open(os.path.join(args.output, '{}.json'.format(args.task)), 'r') as f:
+            merge_json = json.load(f)
+    else:
+        merge_json = {}
     for i in range(args.num_chunks):
         with open(os.path.join(args.output, '{}_{}_{}.json'.format(args.task, args.num_chunks, i)), 'r') as f:
             data = json.load(f)
