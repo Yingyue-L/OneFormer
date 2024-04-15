@@ -633,22 +633,24 @@ class Visualizer:
             output (VisImage): image object with visualizations.
         """
         pred = _PanopticPrediction(panoptic_seg, segments_info, self.metadata)
-        assert depth.shape[:2] == panoptic_seg.shape
+        assert depth.shape == panoptic_seg.shape
         assert torch.max(panoptic_seg) == len(segments_info)
 
-        import matplotlib.pyplot as plt
-        # 使用"Magma_r" colormap
-        colormap = plt.get_cmap('magma_r').colors
-        # 计算每个颜色与输入像素之间的欧氏距离
-        try:
-            distances = torch.norm(torch.tensor(colormap).cuda() * 255 - torch.tensor(depth).cuda().unsqueeze(-2), dim=-1)
-        except:
-            distances = torch.norm(torch.tensor(colormap) * 255 - torch.tensor(depth).unsqueeze(-2), dim=-1)
+        # import matplotlib.pyplot as plt
+        # # 使用"Magma_r" colormap
+        # colormap = plt.get_cmap('magma_r').colors
+        # # 计算每个颜色与输入像素之间的欧氏距离
+        # try:
+        #     distances = torch.norm(torch.tensor(colormap * 255).to(torch.uint8).cuda() - torch.tensor(depth).unsqueeze(-2).to(torch.uint8).cuda(), dim=-1)
+        # except:
+        #     distances = torch.norm(torch.tensor(colormap * 255) - torch.tensor(depth).unsqueeze(-2), dim=-1)
+        
+        # # 找到最小距离对应的索引
+        # nearest_index = torch.argmin(distances, dim=-1)
+        # # 归一化深度值
+        # depth_values = nearest_index.float().cpu().numpy() / 255.0
 
-        # 找到最小距离对应的索引
-        nearest_index = torch.argmin(distances, dim=-1)
-        # 归一化深度值
-        depth_values = nearest_index.float().cpu().numpy() / 255.0
+        # del distances, nearest_index
 
         if self._instance_mode == ColorMode.IMAGE_BW:
             self.output.reset_image(self._create_grayscale_image(pred.non_empty_mask()))
@@ -676,7 +678,7 @@ class Visualizer:
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
 
-            depth_value = np.max(depth_values[mask])
+            depth_value = np.max(depth[mask])
 
             segment_json.append({
                 "depth": round(float(depth_value), 4),
@@ -718,7 +720,7 @@ class Visualizer:
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
 
-            depth_value = np.max(depth_values[mask])
+            depth_value = np.max(depth[mask])
 
             segment_json.append({
                 "depth": round(float(depth_value), 4),

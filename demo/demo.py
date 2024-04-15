@@ -183,8 +183,8 @@ if __name__ == "__main__":
 
             if args.task == "panoptic":
                 try:
-                    depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".jpg")
-                    depth = np.array(Image.open(depth_path))
+                    depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".npy")
+                    depth = np.load(depth_path)
                 except:
                     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
                         f.write(abspath + " Depth open error\n")
