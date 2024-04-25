@@ -633,7 +633,8 @@ class Visualizer:
             output (VisImage): image object with visualizations.
         """
         pred = _PanopticPrediction(panoptic_seg, segments_info, self.metadata)
-        assert depth.shape == panoptic_seg.shape
+        if depth is not None:
+            assert depth.shape == panoptic_seg.shape
         assert torch.max(panoptic_seg) == len(segments_info)
 
         # import matplotlib.pyplot as plt
@@ -678,13 +679,12 @@ class Visualizer:
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
 
-            depth_value = np.max(depth[mask])
 
             segment_json.append({
-                "depth": round(float(depth_value), 4),
+                "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
                 "category": text.split("-")[0],
                 "bbox": [int(x) for x in bbox],
-                "is_thing": 0
+                "is_thing": 1 if text in self.thing_classes else "stuff"
             })
             # rle["counts"] = rle["counts"].decode("utf-8")
             # if text.split("-")[0] not in json.keys():
@@ -720,10 +720,8 @@ class Visualizer:
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
 
-            depth_value = np.max(depth[mask])
-
             segment_json.append({
-                "depth": round(float(depth_value), 4),
+                "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
                 "category": text.split("-")[0],
                 "bbox": [int(x) for x in bbox],
                 "is_thing": 1 if text in self.thing_classes else "stuff"
@@ -750,7 +748,8 @@ class Visualizer:
         #     colors = None
         # self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
         from operator import itemgetter
-        segment_json = sorted(segment_json, key=itemgetter('depth'))
+        if depth is not None:
+            segment_json = sorted(segment_json, key=itemgetter('depth'))
 
         return self.output, texts, segment_json
 
