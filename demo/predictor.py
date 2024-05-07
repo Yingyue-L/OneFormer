@@ -71,14 +71,14 @@ class VisualizationDemo(object):
             visualizer = Visualizer(image, metadata=self.metadata, instance_mode=ColorMode.IMAGE_BW)
             predictions = self.predictor(image, "semantic")
             vis_output['semantic_inference'], txt_output['semantic_inference'], json_output = visualizer.draw_sem_seg(
-                predictions["sem_seg"].argmax(dim=0).to(self.cpu_device), alpha=1.0
+                predictions["sem_seg"].argmax(dim=0).to(self.cpu_device), depth=depth, alpha=1.0
             )
 
         if task=="instance":
             visualizer = Visualizer(image, metadata=self.metadata, instance_mode=ColorMode.IMAGE_BW)
             predictions = self.predictor(image, "instance")
             instances = predictions["instances"].to(self.cpu_device)
-            vis_output['instance_inference'], txt_output['instance_inference'], json_output = visualizer.draw_instance_predictions(predictions=instances, alpha=1.0)
+            vis_output['instance_inference'], txt_output['instance_inference'], json_output = visualizer.draw_instance_predictions(predictions=instances, depth=depth, alpha=1.0)
         return predictions, vis_output, txt_output, json_output
 
 class AsyncPredictor:

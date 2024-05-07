@@ -146,7 +146,8 @@ if __name__ == "__main__":
         for root, dirs, files in os.walk(root_dir):
             for file in files:
                 if os.path.join(par_dir, file) not in merge_json:
-                # if file.endswith('.jpg') or file.endswith('.png'):
+                # if not os.path.exists(f"{args.output}/{os.path.join(par_dir, file).split('.')[0]}.jpg"):
+                # and (file.endswith('.jpg') or file.endswith('.png')):
                     file_paths.append(os.path.join(root, file))
                     file_abspaths.append(os.path.join(par_dir, file))
             for dir in dirs:
@@ -157,8 +158,8 @@ if __name__ == "__main__":
         return file_paths, file_abspaths
 
     if args.input:
-        with open(os.path.join(args.output, f"error_{args.task}.txt"), "w") as f:
-            f.write("")
+        # with open(os.path.join(args.output, f"error_{args.task}.txt"), "w") as f:
+        #     f.write("")
 
         if args.output:
             if os.path.exists(f'{args.output}/{args.task}.json'):
@@ -166,25 +167,20 @@ if __name__ == "__main__":
                     merge_json = json.load(infile)
             else:
                 merge_json = {}
-            # with open(f'{args.output}/{args.task}_v1.txt', 'w') as f:
-            #     f.write("")
+            with open(f'{args.output}/{args.task}_v1.txt', 'w') as f:
+                f.write("")
+            
+            with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.jsonl', 'w') as f:
+                f.write("")
         paths, abspaths = find_files(args.input)
+        paths, abspaths = paths[:10], abspaths[:10]
         paths = get_chunk(paths, args.num_chunks, args.chunk_idx)
         abspaths = get_chunk(abspaths, args.num_chunks, args.chunk_idx)
         
         segment_json = {}
         for path, abspath in tqdm.tqdm(zip(paths, abspaths), disable=not args.output, total=len(paths)):
             # if abspath in merge_json:
-            #     json_output = merge_json[abspath]
-            #     segment_json[abspath] = [
-            #         {
-            #             "depth": obj["depth"] if "depth" in obj else None,
-            #             "bbox": obj["bbox"],
-            #             "category": obj["category"],
-            #             "is_thing": obj["is_thing"],
-            #         }
-            #         for obj in json_output
-            #     ]
+            #     ori_json_output = merge_json[abspath]
             # else: 
             # use PIL, to be consistent with evaluation
             # try:
@@ -204,24 +200,43 @@ if __name__ == "__main__":
             #     continue
             start_time = time.time()
 
-            if args.task == "panoptic":
-                # try:
-                depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".npy")
-                depth = np.load(depth_path)
-                # except:
-                #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
-                #         f.write(abspath + " Depth open error\n")
-                #     continue
-                # try:
-                predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task, depth)
-                # except:
-                #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
-                #         f.write(abspath + " Panoptic error\n")
-                    # continue
-            else:
-                predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task)
+            # if args.task == "panoptic":
+            #     # try:
+            depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".npy")
+            depth = np.load(depth_path)
+            #     # except:
+            #     #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
+            #     #         f.write(abspath + " Depth open error\n")
+            #     #     continue
+            #     # try:
+            #     predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task)
+            #     # except:
+            #     #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
+            #     #         f.write(abspath + " Panoptic error\n")
+            #         # continue
+            #     # save
+            #     # if args.output:
+            #     #     panoptic_inference = visualized_output["panoptic_inference"]
+            #     #     panoptic_inference.save(f"{args.output}/{abspath.split('.')[0]}.jpg")
+
+
+            # else:
+            predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task, depth)
 
             segment_json[abspath] = json_output
+            # assert len(json_output) == len(ori_json_output)
+            # assert all([new_obj["category"] == obj["category"] for new_obj, obj in zip(json_output, ori_json_output)])
+            # assert all([new_obj["bbox"] == obj["bbox"] for new_obj, obj in zip(json_output, ori_json_output)])
+            # segment_json[abspath] = [
+            #     {
+            #         "depth": obj["depth"] if "depth" in obj else None,
+            #         "bbox": obj["bbox"],
+            #         "category": obj["category"],
+            #         "is_thing": obj["is_thing"],
+            #         "mask": new_obj["mask"],
+            #     }
+            #     for new_obj, obj in zip(json_output, ori_json_output)
+            # ]
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
@@ -265,14 +280,15 @@ if __name__ == "__main__":
                                 'wine glass']
                 for cat in categories:
                     if categories[cat] == 1:
+                        cat = cat.split("-")[0]
                         txt_output += f"{p.singular_noun(cat) if cat != 'grass' and cat not in SPECIAL_WORDS and p.singular_noun(cat) else cat}, "
                     else:
                         txt_output += f"{p.number_to_words(categories[cat])} {p.plural(cat) if cat not in SPECIAL_WORDS and p.plural(cat) else cat}, "
                 txt_output = txt_output[:-2] + "."
             with open(f'{args.output}/{args.task}_v1.txt', 'a') as f:
                 f.write("<IMG>" + abspath + "<IMG>" + txt_output + "\n")
-        if args.output:
-            with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.json', 'w') as output_file:
-                json.dump(segment_json, output_file)
+            if args.output:
+                with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.jsonl', 'a') as output_file:
+                    f.write(json.dumps(json_output) + "\n")
     else:
         raise ValueError("No Input Given")

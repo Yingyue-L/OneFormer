@@ -21,6 +21,8 @@ from detectron2.data import MetadataCatalog
 from detectron2.structures import BitMasks, Boxes, BoxMode, Keypoints, PolygonMasks, RotatedBoxes
 from detectron2.utils.file_io import PathManager
 import random
+
+from skimage import measure
 random.seed(0)
 from colormap import random_color, _COLORS
 logger = logging.getLogger(__name__)
@@ -36,6 +38,38 @@ _RED = (1.0, 0, 0)
 
 _KEYPOINT_THRESHOLD = 0.05
 
+def close_contour(contour):
+    if not np.array_equal(contour[0], contour[-1]):
+        contour = np.vstack((contour, contour[0]))
+    return contour
+
+def binary_mask_to_polygon(binary_mask, tolerance=0):
+    """Converts a binary mask to COCO polygon representation
+
+    Args:
+        binary_mask: a 2D binary numpy array where '1's represent the object
+        tolerance: Maximum distance from original points of polygon to approximated
+            polygonal chain. If tolerance is 0, the original coordinate array is returned.
+
+    """
+    polygons = []
+    # pad mask to close contours of shapes which start and end at an edge
+    padded_binary_mask = np.pad(binary_mask, pad_width=1, mode='constant', constant_values=0)
+    contours = measure.find_contours(padded_binary_mask, 0.5)
+    contours=sorted(contours,key=lambda x: len(x),reverse=True)[0:1]#可能返回多个mask
+    contours = np.subtract(contours, 1)
+    for contour in contours:
+        contour = close_contour(contour)
+        contour = measure.approximate_polygon(contour, tolerance)
+        if len(contour) < 3:
+            continue
+        contour = np.flip(contour, axis=1)
+        segmentation = contour.ravel().tolist()
+        # after padding and subtracting 1 we may get -0.5 points in our segmentation 
+        segmentation = [0 if i < 0 else i for i in segmentation]
+        polygons.append(segmentation)
+
+    return polygons
 
 def instance_color(rgb=False, idx=1, maximum=255):
     """
@@ -489,7 +523,7 @@ class Visualizer:
 
         return self.output
     
-    def draw_instance_predictions(self, predictions, alpha=0.8):
+    def draw_instance_predictions(self, predictions, depth=None, alpha=0.8):
         """
         Draw instance-level prediction results on an image.
         Args:
@@ -548,12 +582,18 @@ class Visualizer:
                 text = self.class_names[label]
                 mask = mask.mask
 
+                polygon = binary_mask_to_polygon(mask, tolerance=3)
+
                 rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
                 bbox = mask_util.toBbox(rle)
 
+                rle["counts"] = rle["counts"].decode("utf-8")
                 segment_json.append({
-                    "category": text.split("-")[0],
+                    "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
+                    "category": text,
                     "bbox": [int(x) for x in bbox],
+                    "mask": {"size": rle["size"], "segmentation": polygon},
+                    "rle": rle,
                     "is_thing": 1 if text in self.thing_classes else "stuff"
                 })
 
@@ -564,7 +604,7 @@ class Visualizer:
 
         return self.output, texts, segment_json
 
-    def draw_sem_seg(self, sem_seg, area_threshold=None, alpha=0.8):
+    def draw_sem_seg(self, sem_seg, area_threshold=None, depth=None, alpha=0.8):
         """
         Draw semantic segmentation predictions/labels.
         Args:
@@ -577,6 +617,8 @@ class Visualizer:
         """
         if isinstance(sem_seg, torch.Tensor):
             sem_seg = sem_seg.numpy()
+        if depth is not None:
+            assert depth.shape == sem_seg.shape
         labels, areas = np.unique(sem_seg, return_counts=True)
         sorted_idxs = np.argsort(-areas).tolist()
         labels = labels[sorted_idxs]
@@ -597,12 +639,18 @@ class Visualizer:
             rle = mask_util.encode(np.asfortranarray(binary_mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
 
+            rle["counts"] = rle["counts"].decode("utf-8")
+            
+            polygon = binary_mask_to_polygon(binary_mask, tolerance=3)
+
             segment_json.append({
-                "category": text.split("-")[0],
+                "depth": round(float(np.max(depth[binary_mask])), 4) if depth is not None else None,
+                "category": text,
                 "bbox": [int(x) for x in bbox],
+                "mask": {"size": rle["size"], "segmentation": polygon},
+                "rle": rle,
                 "is_thing": 0
             })
-            # rle["counts"] = rle["counts"].decode("utf-8")
             # if text.split("-")[0] not in json.keys():
             #     json[text.split("-")[0]] = [rle]
             # else:
@@ -676,30 +724,34 @@ class Visualizer:
             text = self.class_names[category_idx]
             classes.append(text)
 
+
+            polygon = binary_mask_to_polygon(mask, tolerance=3)
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
+            rle["counts"] = rle["counts"].decode("utf-8")
 
 
             segment_json.append({
                 "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
-                "category": text.split("-")[0],
+                "category": text,
                 "bbox": [int(x) for x in bbox],
+                "mask": {"size": rle["size"], "segmentation": polygon},
+                "rle": rle,
                 "is_thing": 1 if text in self.thing_classes else "stuff"
             })
-            # rle["counts"] = rle["counts"].decode("utf-8")
+
             # if text.split("-")[0] not in json.keys():
             #     json[text.split("-")[0]] = [rle]
             # else:
             #     json[text.split("-")[0]].append(rle)
-
-            # self.draw_binary_mask(
-            #     mask,
-            #     color=mask_color,
-            #     edge_color=_OFF_WHITE,
-            #     text=text,
-            #     alpha=alpha,
-            #     area_threshold=area_threshold,
-            # )
+            self.draw_binary_mask(
+                mask,
+                color=mask_color,
+                edge_color=_OFF_WHITE,
+                text=text,
+                alpha=alpha,
+                area_threshold=area_threshold,
+            )
 
         # draw mask for all instances second
         all_instances = list(pred.instance_masks())
@@ -717,16 +769,19 @@ class Visualizer:
         )
 
         for mask, text in zip(masks, labels):
+            polygon = binary_mask_to_polygon(mask, tolerance=3)
             rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
+            rle["counts"] = rle["counts"].decode("utf-8")
 
             segment_json.append({
                 "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
-                "category": text.split("-")[0],
+                "category": text,
                 "bbox": [int(x) for x in bbox],
-                "is_thing": 1 if text in self.thing_classes else "stuff"
+                "is_thing": 1 if text in self.thing_classes else "stuff",
+                "mask": {"size": rle["size"], "segmentation": polygon},
+                "rle": rle
             })
-            # rle["counts"] = rle["counts"].decode("utf-8")
             # if text.split("-")[0] not in json.keys():
             #     json[text.split("-")[0]] = [rle]
             # else:
@@ -740,13 +795,13 @@ class Visualizer:
         #     else:
         #         texts[text][0] += 1
 
-        # try:
-        #     colors = [
-        #         self._jitter([x / 255 for x in self.metadata.stuff_colors[c]]) for c in category_ids
-        #     ]
-        # except AttributeError:
-        #     colors = None
-        # self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
+        try:
+            colors = [
+                self._jitter([x / 255 for x in self.metadata.stuff_colors[c]]) for c in category_ids
+            ]
+        except AttributeError:
+            colors = None
+        self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
         from operator import itemgetter
         if depth is not None:
             segment_json = sorted(segment_json, key=itemgetter('depth'))
