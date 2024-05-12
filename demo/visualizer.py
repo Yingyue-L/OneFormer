@@ -25,6 +25,7 @@ import random
 from skimage import measure
 random.seed(0)
 from colormap import random_color, _COLORS
+from operator import itemgetter
 logger = logging.getLogger(__name__)
 
 __all__ = ["ColorMode", "VisImage", "Visualizer"]
@@ -43,6 +44,11 @@ def close_contour(contour):
         contour = np.vstack((contour, contour[0]))
     return contour
 
+def close_contour_torch(contour):
+    if not torch.equal(contour[0], contour[-1]):
+        contour = torch.vstack((contour, contour[0]))
+    return contour
+
 def binary_mask_to_polygon(binary_mask, tolerance=0):
     """Converts a binary mask to COCO polygon representation
 
@@ -57,14 +63,30 @@ def binary_mask_to_polygon(binary_mask, tolerance=0):
     padded_binary_mask = np.pad(binary_mask, pad_width=1, mode='constant', constant_values=0)
     contours = measure.find_contours(padded_binary_mask, 0.5)
     contours=sorted(contours,key=lambda x: len(x),reverse=True)[0:1]#可能返回多个mask
-    contours = np.subtract(contours, 1)
+
+    # contours = np.subtract(contours, 1)
+    # for contour in contours:
+    #     contour = close_contour(contour)
+        # contour = measure.approximate_polygon(contour, tolerance)
+    #     if len(contour) < 3:
+    #         continue
+    #     contour = np.flip(contour, axis=1)
+    #     segmentation = contour.ravel().tolist()
+    #     # after padding and subtracting 1 we may get -0.5 points in our segmentation 
+    #     segmentation = [0 if i < 0 else i for i in segmentation]
+    #     polygons.append(segmentation)
+
+    # convert torch to cuda
+    contours = torch.tensor(contours).cuda()
+    contours = torch.subtract(contours, 1)
     for contour in contours:
-        contour = close_contour(contour)
-        contour = measure.approximate_polygon(contour, tolerance)
+        contour = close_contour_torch(contour)
+        contour = measure.approximate_polygon(contour.cpu().numpy(), tolerance)
         if len(contour) < 3:
             continue
-        contour = np.flip(contour, axis=1)
-        segmentation = contour.ravel().tolist()
+        contour = torch.tensor(contour).cuda()
+        contour = torch.flip(contour, dims=[1])
+        segmentation = contour.cpu().numpy().ravel().tolist()
         # after padding and subtracting 1 we may get -0.5 points in our segmentation 
         segmentation = [0 if i < 0 else i for i in segmentation]
         polygons.append(segmentation)
@@ -589,7 +611,7 @@ class Visualizer:
 
                 rle["counts"] = rle["counts"].decode("utf-8")
                 segment_json.append({
-                    "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
+                    "depth": round(float(np.max(depth[mask.astype(np.bool_)])), 4) if depth is not None else None,
                     "category": text,
                     "bbox": [int(x) for x in bbox],
                     "mask": {"size": rle["size"], "segmentation": polygon},
@@ -601,6 +623,8 @@ class Visualizer:
                 #     texts[text] = [1, "thing" if text in self.thing_classes else "stuff"]
                 # else:
                 #     texts[text][0] += 1
+        if depth is not None:
+            segment_json = sorted(segment_json, key=itemgetter('depth'))
 
         return self.output, texts, segment_json
 
@@ -623,18 +647,17 @@ class Visualizer:
         sorted_idxs = np.argsort(-areas).tolist()
         labels = labels[sorted_idxs]
         texts = {}
-        json = {}
 
         segment_json = []
         for label in filter(lambda l: l < len(self.class_names), labels):
-            try:
-                mask_color = [x / 255 for x in self.metadata.stuff_colors[label]]
-            except (AttributeError, IndexError):
-                mask_color = None
+            # try:
+            #     mask_color = [x / 255 for x in self.metadata.stuff_colors[label]]
+            # except (AttributeError, IndexError):
+            #     mask_color = None
 
             binary_mask = (sem_seg == label).astype(np.uint8)
             text = self.class_names[label]
-            texts[text] = [1, "stuff"]
+            # texts[text] = [1, "stuff"]
 
             rle = mask_util.encode(np.asfortranarray(binary_mask, dtype=np.uint8))
             bbox = mask_util.toBbox(rle)
@@ -644,7 +667,7 @@ class Visualizer:
             polygon = binary_mask_to_polygon(binary_mask, tolerance=3)
 
             segment_json.append({
-                "depth": round(float(np.max(depth[binary_mask])), 4) if depth is not None else None,
+                "depth": round(float(np.max(depth[binary_mask.astype(np.bool_)])), 4) if depth is not None else None,
                 "category": text,
                 "bbox": [int(x) for x in bbox],
                 "mask": {"size": rle["size"], "segmentation": polygon},
@@ -664,6 +687,8 @@ class Visualizer:
             #     alpha=alpha,
             #     area_threshold=area_threshold,
             # )
+        if depth is not None:
+            segment_json = sorted(segment_json, key=itemgetter('depth'))
         return self.output, texts, segment_json
 
     def draw_panoptic_seg(self, panoptic_seg, segments_info, depth, area_threshold=None, alpha=0.7):
@@ -705,13 +730,11 @@ class Visualizer:
             self.output.reset_image(self._create_grayscale_image(pred.non_empty_mask()))
 
         classes = []
-        json = {}
 
         segment_json = []
 
         import pycocotools.mask as mask_util
         
-        json = {}
         
         # draw mask for all semantic segments first i.e. "stuff"
         for mask, sinfo in pred.semantic_masks():
@@ -802,7 +825,6 @@ class Visualizer:
         except AttributeError:
             colors = None
         self.overlay_instances(masks=masks, labels=labels, assigned_colors=colors, alpha=alpha)
-        from operator import itemgetter
         if depth is not None:
             segment_json = sorted(segment_json, key=itemgetter('depth'))
 

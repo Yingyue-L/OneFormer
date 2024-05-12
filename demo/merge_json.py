@@ -17,9 +17,9 @@ if __name__ == '__main__':
     else:
         merge_json = {}
     for i in range(args.num_chunks):
-        if os.path.exists(f'{args.output}/{args.task}_{args.num_chunks}_{i}.jsonl'):
-            with open(os.path.join(args.output, '{}_{}_{}.jsonl'.format(args.task, args.num_chunks, i)), 'r') as f:
-                data = {key: value for line in f for key, value in json.loads(line).items()}
+        if os.path.exists(f'{args.output}/{args.task}_{args.num_chunks}_{i}.json'):
+            with open(os.path.join(args.output, '{}_{}_{}.json'.format(args.task, args.num_chunks, i)), 'r') as f:
+                data = json.load(f)
             # merge data
             merge_json.update(data)
     with open(os.path.join(args.output, '{}.json'.format(args.task)), 'w') as f:

@@ -1,25 +1,29 @@
 #!/bin/bash
 
-CONFIG="configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml"
-CHECKPOINT="150_16_dinat_l_oneformer_coco_100ep.pth"
+# CONFIG="configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml"
+# CHECKPOINT="150_16_dinat_l_oneformer_coco_100ep.pth"
+
+CONFIG="configs/ade20k/dinat/coco_pretrain_oneformer_dinat_large_bs16_160k_1280x1280.yaml"
+CHECKPOINT="coco_pretrain_1280x1280_150_16_dinat_l_oneformer_ade20k_160k.pth"
 
 gpu_list="${CUDA_VISIBLE_DEVICES:-0}"
 IFS=',' read -ra GPULIST <<< "$gpu_list"
 
-CHUNKS=${#GPULIST[@]}
+GPUS=${#GPULIST[@]}
+CHUNKS=`expr ${#GPULIST[@]} \* 2`
 
 
 
 INPUT_DIR="data/COCO17/train2017"
 OUTPUT_DIR="playground/data/coco_segm_text/train"
-DEPTH_DIR="playground/data/coco_segm_text/depth/train/depth"
+DEPTH_DIR="playground/data/coco/train2017_depth_npy"
 
 
-for TASK in "semantic" "instance" "panoptic"; do
+for TASK in "semantic"; do
 
     python demo/merge_json.py --output ${OUTPUT_DIR} --num-chunks $CHUNKS --task ${TASK}
     for IDX in $(seq 0 $((CHUNKS-1))); do
-        CUDA_VISIBLE_DEVICES=${GPULIST[$IDX]} python demo/demo.py \
+        CUDA_VISIBLE_DEVICES=${GPULIST[$IDX % $GPUS]} python demo/demo.py \
         --config-file ${CONFIG} \
         --input ${INPUT_DIR} \
         --output ${OUTPUT_DIR} \
