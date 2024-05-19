@@ -145,9 +145,9 @@ if __name__ == "__main__":
         file_abspaths = []
         for root, dirs, files in os.walk(root_dir):
             for file in files:
-                if os.path.join(par_dir, file) not in merge_json:
+                # if os.path.join(par_dir, file) not in merge_json:
                 # if not os.path.exists(f"{args.output}/{os.path.join(par_dir, file).split('.')[0]}.jpg"):
-                # and (file.endswith('.jpg') or file.endswith('.png')):
+                if (file.endswith('.jpg') or file.endswith('.png')):
                     file_paths.append(os.path.join(root, file))
                     file_abspaths.append(os.path.join(par_dir, file))
             for dir in dirs:
@@ -161,17 +161,17 @@ if __name__ == "__main__":
         # with open(os.path.join(args.output, f"error_{args.task}.txt"), "w") as f:
         #     f.write("")
 
-        if args.output:
-            if os.path.exists(f'{args.output}/{args.task}.json'):
-                with open(f'{args.output}/{args.task}.json', 'r') as infile:
-                    merge_json = json.load(infile)
-            else:
-                merge_json = {}
-            with open(f'{args.output}/{args.task}_v1.txt', 'w') as f:
-                f.write("")
+        # if args.output:
+            # if os.path.exists(f'{args.output}/{args.task}.json'):
+            #     with open(f'{args.output}/{args.task}.json', 'r') as infile:
+            #         merge_json = json.load(infile)
+            # else:
+            #     merge_json = {}
+            # with open(f'{args.output}/{args.task}_v1.txt', 'w') as f:
+            #     f.write("")
             
-            with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.jsonl', 'w') as f:
-                f.write("")
+            # with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.jsonl', 'w') as f:
+            #     f.write("")
         paths, abspaths = find_files(args.input)
         # paths, abspaths = paths[:10], abspaths[:10]
         paths = get_chunk(paths, args.num_chunks, args.chunk_idx)
@@ -184,26 +184,29 @@ if __name__ == "__main__":
             # else: 
             # use PIL, to be consistent with evaluation
             # try:
-            img = read_image(path, format="BGR")
-            # img = Image.open(path).convert("RGB")
-            # from detectron2.data.detection_utils import _apply_exif_orientation
-            # img = _apply_exif_orientation(img)
-            # max_length = 2000
-            # scale_factor = 1 if img.width < max_length else max_length / img.width
-            # img  = img.resize((int(scale_factor * img.width), int(scale_factor * img.height)))
+            # img = read_image(path, format="BGR")
+            if os.path.exists(f"{args.output}/{abspath.split('.')[0]}.jpg"):
+                continue
+            img = Image.open(path).convert("RGB")
+            from detectron2.data.detection_utils import _apply_exif_orientation
+            img = _apply_exif_orientation(img)
+            max_length = 2000
+            scale_factor = 1 if img.width < max_length else max_length / img.width
+            img  = img.resize((int(scale_factor * img.width), int(scale_factor * img.height)))
 
-            # img = np.asarray(img)
-            # img = img[:, :, ::-1]
+            img = np.asarray(img)
+            img = img[:, :, ::-1]
             # except:
             #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
             #         f.write(abspath + " Image open error\n")
             #     continue
             start_time = time.time()
+            depth = None
 
             # if args.task == "panoptic":
             #     # try:
-            depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".npy")
-            depth = np.load(depth_path)
+            # depth_path = os.path.join(args.depth, abspath.split(".")[0] + ".npy")
+            # depth = np.load(depth_path)
             #     # except:
             #     #     with open(os.path.join(args.output, f"error_{args.task}.txt"), "a") as f:
             #     #         f.write(abspath + " Depth open error\n")
@@ -222,8 +225,14 @@ if __name__ == "__main__":
 
             # else:
             predictions, visualized_output, txt_output, json_output = demo.run_on_image(img, args.task, depth)
+            if args.output:
+                panoptic_inference = visualized_output["panoptic_inference"]
+                par_dir = os.path.dirname(f"{args.output}/{abspath.split('.')[0]}.jpg")
+                if not os.path.exists(par_dir):
+                    os.makedirs(par_dir)
+                panoptic_inference.save(f"{args.output}/{abspath.split('.')[0]}.jpg")
 
-            segment_json[abspath] = json_output
+            # segment_json[abspath] = json_output
             # assert len(json_output) == len(ori_json_output)
             # assert all([new_obj["category"] == obj["category"] for new_obj, obj in zip(json_output, ori_json_output)])
             # assert all([new_obj["bbox"] == obj["bbox"] for new_obj, obj in zip(json_output, ori_json_output)])
@@ -246,62 +255,62 @@ if __name__ == "__main__":
                     time.time() - start_time,
                 )
             )
-            if len(json_output) == 0:
-                txt_output = "There are no detectable objects in the image"
-            else:
-                categories = {}
-                for obj in json_output:
-                    if obj["category"] not in categories:
-                        categories[obj["category"]] = 1
-                    elif obj["is_thing"]:
-                        categories[obj["category"]] += 1
-                if len(categories) == 1 and categories[list(categories.keys())[0]] == 1:
-                    txt_output = "The objects present in the image is: "
-                else:
-                    txt_output = "The objects present in the image are: "
-                SPECIAL_WORDS = ['baseball bat',
-                                'baseball glove',
-                                'cell phone',
-                                'dining table',
-                                'fire hydrant',
-                                'french fries',
-                                'hair drier',
-                                'hot dog',
-                                'parking meter',
-                                'potted plant',
-                                'soccer ball',
-                                'soccer player',
-                                'sports ball',
-                                'stop sign',
-                                'teddy bear',
-                                'tennis racket',
-                                'toy figure',
-                                'traffic light',
-                                'wine glass',
-                                "bulletin board",
-                                "crt screen",
-                                "trash can",
-                                "trade name",
-                                "conveyer belt",
-                                "dirt track",
-                                "street lamp",
-                                "arcade machine",
-                                "swivel chair",
-                                "kitchen island",
-                                "coffee table",
-                                "screen door"
-                                ]
-                for cat in categories:
-                    if categories[cat] == 1:
-                        cat = cat.split(",")[0].split("-")[0]
-                        txt_output += f"{p.singular_noun(cat) if cat != 'grass' and cat not in SPECIAL_WORDS and p.singular_noun(cat) else cat}, "
-                    else:
-                        txt_output += f"{p.number_to_words(categories[cat])} {p.plural(cat) if cat not in SPECIAL_WORDS and p.plural(cat) else cat}, "
-                txt_output = txt_output[:-2] + "."
-            with open(f'{args.output}/{args.task}_v1.txt', 'a') as f:
-                f.write("<IMG>" + abspath + "<IMG>" + txt_output + "\n")
-        if args.output:
-            with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.json', 'w') as output_file:
-                json.dump(segment_json, output_file)
+            # if len(json_output) == 0:
+            #     txt_output = "There are no detectable objects in the image"
+            # else:
+            #     categories = {}
+            #     for obj in json_output:
+            #         if obj["category"] not in categories:
+            #             categories[obj["category"]] = 1
+            #         elif obj["is_thing"]:
+            #             categories[obj["category"]] += 1
+            #     if len(categories) == 1 and categories[list(categories.keys())[0]] == 1:
+            #         txt_output = "The objects present in the image is: "
+            #     else:
+            #         txt_output = "The objects present in the image are: "
+            #     SPECIAL_WORDS = ['baseball bat',
+            #                     'baseball glove',
+            #                     'cell phone',
+            #                     'dining table',
+            #                     'fire hydrant',
+            #                     'french fries',
+            #                     'hair drier',
+            #                     'hot dog',
+            #                     'parking meter',
+            #                     'potted plant',
+            #                     'soccer ball',
+            #                     'soccer player',
+            #                     'sports ball',
+            #                     'stop sign',
+            #                     'teddy bear',
+            #                     'tennis racket',
+            #                     'toy figure',
+            #                     'traffic light',
+            #                     'wine glass',
+            #                     "bulletin board",
+            #                     "crt screen",
+            #                     "trash can",
+            #                     "trade name",
+            #                     "conveyer belt",
+            #                     "dirt track",
+            #                     "street lamp",
+            #                     "arcade machine",
+            #                     "swivel chair",
+            #                     "kitchen island",
+            #                     "coffee table",
+            #                     "screen door"
+            #                     ]
+            #     for cat in categories:
+            #         if categories[cat] == 1:
+            #             cat = cat.split(",")[0].split("-")[0]
+            #             txt_output += f"{p.singular_noun(cat) if cat != 'grass' and cat not in SPECIAL_WORDS and p.singular_noun(cat) else cat}, "
+            #         else:
+            #             txt_output += f"{p.number_to_words(categories[cat])} {p.plural(cat) if cat not in SPECIAL_WORDS and p.plural(cat) else cat}, "
+            #     txt_output = txt_output[:-2] + "."
+            # with open(f'{args.output}/{args.task}_v1.txt', 'a') as f:
+            #     f.write("<IMG>" + abspath + "<IMG>" + txt_output + "\n")
+        # if args.output:
+        #     with open(f'{args.output}/{args.task}_{args.num_chunks}_{args.chunk_idx}.json', 'w') as output_file:
+        #         json.dump(segment_json, output_file)
     else:
         raise ValueError("No Input Given")

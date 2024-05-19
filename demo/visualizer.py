@@ -748,20 +748,20 @@ class Visualizer:
             classes.append(text)
 
 
-            polygon = binary_mask_to_polygon(mask, tolerance=3)
-            rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
-            bbox = mask_util.toBbox(rle)
-            rle["counts"] = rle["counts"].decode("utf-8")
+            # polygon = binary_mask_to_polygon(mask, tolerance=3)
+            # rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
+            # bbox = mask_util.toBbox(rle)
+            # rle["counts"] = rle["counts"].decode("utf-8")
 
 
-            segment_json.append({
-                "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
-                "category": text,
-                "bbox": [int(x) for x in bbox],
-                "mask": {"size": rle["size"], "segmentation": polygon},
-                "rle": rle,
-                "is_thing": 1 if text in self.thing_classes else "stuff"
-            })
+            # segment_json.append({
+            #     "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
+            #     "category": text,
+            #     "bbox": [int(x) for x in bbox],
+            #     "mask": {"size": rle["size"], "segmentation": polygon},
+            #     "rle": rle,
+            #     "is_thing": 1 if text in self.thing_classes else "stuff"
+            # })
 
             # if text.split("-")[0] not in json.keys():
             #     json[text.split("-")[0]] = [rle]
@@ -791,20 +791,20 @@ class Visualizer:
             category_ids, scores, self.class_names, [x.get("iscrowd", 0) for x in sinfo]
         )
 
-        for mask, text in zip(masks, labels):
-            polygon = binary_mask_to_polygon(mask, tolerance=3)
-            rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
-            bbox = mask_util.toBbox(rle)
-            rle["counts"] = rle["counts"].decode("utf-8")
+        # for mask, text in zip(masks, labels):
+        #     polygon = binary_mask_to_polygon(mask, tolerance=3)
+        #     rle = mask_util.encode(np.asfortranarray(mask, dtype=np.uint8))
+        #     bbox = mask_util.toBbox(rle)
+        #     rle["counts"] = rle["counts"].decode("utf-8")
 
-            segment_json.append({
-                "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
-                "category": text,
-                "bbox": [int(x) for x in bbox],
-                "is_thing": 1 if text in self.thing_classes else "stuff",
-                "mask": {"size": rle["size"], "segmentation": polygon},
-                "rle": rle
-            })
+            # segment_json.append({
+            #     "depth": round(float(np.max(depth[mask])), 4) if depth is not None else None,
+            #     "category": text,
+            #     "bbox": [int(x) for x in bbox],
+            #     "is_thing": 1 if text in self.thing_classes else "stuff",
+            #     "mask": {"size": rle["size"], "segmentation": polygon},
+            #     "rle": rle
+            # })
             # if text.split("-")[0] not in json.keys():
             #     json[text.split("-")[0]] = [rle]
             # else:

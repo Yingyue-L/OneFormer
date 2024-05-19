@@ -1,27 +1,26 @@
 #!/bin/bash
 
-# CONFIG="configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml"
-# CHECKPOINT="150_16_dinat_l_oneformer_coco_100ep.pth"
+CONFIG="configs/coco/dinat/oneformer_dinat_large_bs16_100ep.yaml"
+CHECKPOINT="150_16_dinat_l_oneformer_coco_100ep.pth"
 
-CONFIG="configs/ade20k/dinat/coco_pretrain_oneformer_dinat_large_bs16_160k_1280x1280.yaml"
-CHECKPOINT="coco_pretrain_1280x1280_150_16_dinat_l_oneformer_ade20k_160k.pth"
+# CONFIG="configs/ade20k/dinat/coco_pretrain_oneformer_dinat_large_bs16_160k_1280x1280.yaml"
+# CHECKPOINT="coco_pretrain_1280x1280_150_16_dinat_l_oneformer_ade20k_160k.pth"
 
-gpu_list="${CUDA_VISIBLE_DEVICES:-0}"
-IFS=',' read -ra GPULIST <<< "$gpu_list"
+# gpu_list="${CUDA_VISIBLE_DEVICES:-0}"
+# IFS=',' read -ra GPULIST <<< "$gpu_list"
+
+GPULIST=(0 1 2 3)
 
 GPUS=${#GPULIST[@]}
 CHUNKS=`expr ${#GPULIST[@]} \* 2`
 
 
 
-INPUT_DIR="data/COCO17/train2017"
-OUTPUT_DIR="playground/data/coco_segm_text/train"
-DEPTH_DIR="playground/data/coco/train2017_depth_npy"
+INPUT_DIR="data/MME_Benchmark_release_version"
+OUTPUT_DIR="data/MME_Benchmark_release_version_panoptic"
 
 
-for TASK in "semantic"; do
-
-    python demo/merge_json.py --output ${OUTPUT_DIR} --num-chunks $CHUNKS --task ${TASK}
+for TASK in "panoptic"; do
     for IDX in $(seq 0 $((CHUNKS-1))); do
         CUDA_VISIBLE_DEVICES=${GPULIST[$IDX % $GPUS]} python demo/demo.py \
         --config-file ${CONFIG} \
@@ -30,12 +29,11 @@ for TASK in "semantic"; do
         --task ${TASK} \
         --num-chunks $CHUNKS \
         --chunk-idx $IDX \
-        --depth ${DEPTH_DIR} \
         --opts MODEL.IS_TRAIN False MODEL.IS_DEMO True MODEL.WEIGHTS ${CHECKPOINT} &
         done
 
     wait
-    python demo/merge_json.py --output ${OUTPUT_DIR} --num-chunks $CHUNKS --task ${TASK}
+    # python demo/merge_json.py --output ${OUTPUT_DIR} --num-chunks $CHUNKS --task ${TASK}
 done
 
 # INPUT_DIR="data/MME_Benchmark_release_version/existence"
